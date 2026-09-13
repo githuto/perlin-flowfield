@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flow Field · Perlin Noise Generative Art</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#08050f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+canvas{display:block;position:fixed;top:0;left:0}
+
+/* ---------- Vignette ---------- */
+.vignette{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;
+  background:radial-gradient(ellipse 92% 92% at center,transparent 28%,rgba(8,5,15,0.27) 72%,rgba(8,5,15,0.54) 100%)}
+
+/* ---------- UI layer ---------- */
+.ui{position:fixed;z-index:10;pointer-events:none}
+.ui>*{pointer-events:auto}
+
+@keyframes slideDown{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
+
+/* ---------- Control Panel (left) ---------- */
+.panel{
+  top:24px;left:24px;width:248px;
+  background:rgba(15,10,25,0.55);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid rgba(255,255,255,0.07);border-radius:14px;
+  color:#e8e0f0;overflow:hidden;
+  animation:slideDown .6s ease .1s both;
+  max-height:calc(100vh - 48px);
+  display:flex;flex-direction:column;
+}
+.panel.collapsed .panel-body{display:none}
+.panel-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 16px 11px;
+  border-bottom:1px solid rgba(255,255,255,0.06);
+}
+.panel-title{
+  font-size:10px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;
+  color:rgba(255,159,28,0.85);
+}
+.collapse-btn{
+  width:24px;height:24px;border:none;background:rgba(255,255,255,0.05);
+  border-radius:7px;color:rgba(255,255,255,0.5);cursor:pointer;
+  font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;
+  transition:all .2s ease;
+}
+.collapse-btn:hover{background:rgba(255,107,107,0.15);color:#ff8a8a}
+
+.panel-body{padding:12px 16px 16px;overflow-y:auto}
+.panel-body::-webkit-scrollbar{width:5px}
+.panel-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:3px}
+
+/* ---------- Stats ---------- */
+.stats{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;
+  font-family:'SF Mono','Cascadia Code','Consolas',monospace;font-size:11px}
+.stat{display:flex;justify-content:space-between}
+.stat .label{color:rgba(255,255,255,0.33)}
+.stat .value{color:#f0e8f8;font-weight:500}
+.stat .value.seed{color:#ff9f1c}
+.stat .value.fps{color:#4ade80}
+
+.divider{height:1px;background:rgba(255,255,255,0.06);margin:4px 0 14px}
+
+/* ---------- Sliders ---------- */
+.slider-row{margin-bottom:15px}
+.slider-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+.slider-head .name{color:rgba(255,255,255,0.55);font-size:11px;letter-spacing:.5px}
+.slider-head .val{color:#ff9f1c;font-size:11px;font-weight:500;font-family:'SF Mono',monospace}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;
+  background:rgba(255,255,255,0.12);outline:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:50%;
+  background:#ff9f1c;border:2px solid #1a1020;cursor:pointer;
+  box-shadow:0 0 8px rgba(255,159,28,0.45);transition:transform .15s ease;
+}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.25)}
+input[type=range]::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;background:#ff9f1c;border:2px solid #1a1020;cursor:pointer;
+}
+
+/* ---------- Buttons (top-right) — revealed whenever the mouse is in the upper half of the screen ---------- */
+.controls{top:24px;right:24px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;
+  max-width:calc(100vw - 48px);
+  opacity:0;pointer-events:none;transform:translateY(-10px);
+  transition:opacity .35s cubic-bezier(.4,0,.2,1),transform .35s cubic-bezier(.4,0,.2,1)}
+.controls.visible{opacity:1;pointer-events:auto;transform:translateY(0)}
+.btn{
+  padding:10px 18px;
+  background:rgba(15,10,25,0.55);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid rgba(255,255,255,0.09);border-radius:12px;
+  color:#e8e0f0;font-family:-apple-system,sans-serif;
+  font-size:13px;font-weight:500;letter-spacing:.3px;
+  cursor:pointer;white-space:nowrap;
+  transition:all .25s cubic-bezier(.4,0,.2,1);
+  display:flex;align-items:center;gap:8px;
+}
+.btn:hover{background:rgba(255,107,107,0.12);border-color:rgba(255,107,107,0.28);
+  color:#ff8a8a;transform:translateY(-1px);box-shadow:0 4px 22px rgba(255,107,107,0.1)}
+.btn:active{transform:translateY(0)}
+.btn svg{width:14px;height:14px;opacity:.7;flex-shrink:0}
+.btn.toggle.active{background:rgba(255,159,28,0.16);border-color:rgba(255,159,28,0.35);color:#ffc857}
+.btn.toggle.active:hover{background:rgba(255,159,28,0.22);color:#ffd980}
+
+/* ---------- Hint ---------- */
+.hint{position:fixed;bottom:22px;left:24px;color:rgba(255,255,255,0.16);
+  font-family:'SF Mono',monospace;font-size:11px;z-index:10;animation:slideDown .6s ease .4s both}
+.hint kbd{display:inline-block;padding:2px 7px;background:rgba(255,255,255,0.05);
+  border-radius:5px;border:1px solid rgba(255,255,255,0.07);margin:0 3px;font-size:10px;color:rgba(255,255,255,0.3)}
+
+/* ---------- Toast ---------- */
+.toast{position:fixed;bottom:32px;left:50%;transform:translateX(-50%) translateY(16px);
+  padding:12px 28px;background:rgba(15,10,25,0.85);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid rgba(255,159,28,0.22);border-radius:12px;color:#ffc857;
+  font-family:-apple-system,sans-serif;font-size:13px;font-weight:500;
+  opacity:0;transition:all .35s cubic-bezier(.4,0,.2,1);z-index:20;pointer-events:none;
+  box-shadow:0 8px 32px rgba(0,0,0,0.3)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div class="vignette" id="vignette"></div>
+
+<!-- ===== Left Control Panel ===== -->
+<div class="ui panel" id="panel">
+  <div class="panel-header">
+    <div class="panel-title">Flow Field</div>
+    <button class="collapse-btn" id="collapseBtn" type="button" title="折叠/展开">⟨</button>
+  </div>
+  <div class="panel-body">
+    <div class="stats">
+      <div class="stat"><span class="label">SEED</span><span class="value seed" id="seedVal">—</span></div>
+      <div class="stat"><span class="label">PARTICLES</span><span class="value" id="particleVal">—</span></div>
+      <div class="stat"><span class="label">FPS</span><span class="value fps" id="fpsVal">—</span></div>
+    </div>
+    <div class="divider"></div>
+    <div class="sliders" id="sliders"><!-- sliders injected by JS --></div>
+  </div>
+</div>
+
+<!-- ===== Top-right action buttons (revealed on hover over top-right zone) ===== -->
+<div class="ui controls" id="controls">
+  <button class="btn" id="regenerateBtn" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12a9 9 0 1 1-9-9c2.39 0 4.68.94 6.36 2.64L21 8"/><path d="M21 3v5h-5"/>
+    </svg>重新生成
+  </button>
+  <button class="btn" id="saveBtn" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>保存 PNG
+  </button>
+  <button class="btn toggle" id="fbmBtn" type="button" title="切换多倍频噪声（fBm）">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="12 2 22 8.5 12 15 2 8.5 12 2"/><polyline points="2 15.5 12 22 22 15.5"/>
+    </svg>多倍频
+  </button>
+  <button class="btn toggle" id="hueBtn" type="button" title="让配色随时间极缓慢旋转色相">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 9 9"/><path d="M12 12l4-3.5"/>
+    </svg>色相漂移
+  </button>
+  <button class="btn" id="shareBtn" type="button" title="复制当前配置的可分享链接">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+      <line x1="8.6" y1="10.5" x2="15.4" y2="6.5"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/>
+    </svg>分享链接
+  </button>
+  <button class="btn" id="pauseBtn" type="button" title="暂停 / 播放 动画（定格截图）">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><span class="label">暂停</span>
+  </button>
+  <button class="btn toggle active" id="evolveBtn" type="button" title="让流场随时间自动演化">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v4h-4"/></svg>自动演化
+  </button>
+  <button class="btn" id="save2xBtn" type="button" title="导出 2× 超采样高清 PNG（适合壁纸 / 打印）">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3.2"/></svg>保存 2×
+  </button>
+</div>
+
+<div class="hint">移动鼠标到右上角显示操作按钮 · <kbd>Space</kbd> 重新生成 · <kbd>S</kbd> 保存图片</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   Seeded PRNG
+   ============================================================ */
+class SeededRandom {
+  constructor(seed){ this.state = seed >>> 0; }
+  next(){ this.state = (this.state * 1664525 + 1013904223) >>> 0; return this.state / 4294967296; }
+}
+
+/* ============================================================
+   Perlin Noise (3D, seeded)
+   ============================================================ */
+class PerlinNoise {
+  constructor(seed){
+    this.perm = new Uint8Array(512);
+    const rng = new SeededRandom(seed);
+    const p = new Uint8Array(256);
+    for (let i=0;i<256;i++) p[i]=i;
+    for (let i=255;i>0;i--){ const j=Math.floor(rng.next()*(i+1)); const t=p[i];p[i]=p[j];p[j]=t; }
+    for (let i=0;i<512;i++) this.perm[i]=p[i&255];
+  }
+  _fade(t){ return t*t*t*(t*(t*6-15)+10); }
+  _lerp(a,b,t){ return a+t*(b-a); }
+  _grad(h,x,y,z){ const u=h<8?x:y; const v=h<4?y:(h===12||h===14?x:z); return ((h&1)?-u:u)+((h&2)?-v:v); }
+  noise(x,y,z){
+    const p=this.perm;
+    const X=Math.floor(x)&255,Y=Math.floor(y)&255,Z=Math.floor(z)&255;
+    x-=Math.floor(x);y-=Math.floor(y);z-=Math.floor(z);
+    const u=this._fade(x),v=this._fade(y),w=this._fade(z);
+    const A=p[X]+Y,AA=p[A]+Z,AB=p[A+1]+Z,B=p[X+1]+Y,BA=p[B]+Z,BB=p[B+1]+Z;
+    return this._lerp(
+      this._lerp(
+        this._lerp(this._grad(p[AA],x,y,z),   this._grad(p[BA],x-1,y,z),  u),
+        this._lerp(this._grad(p[AB],x,y-1,z), this._grad(p[BB],x-1,y-1,z),u),v),
+      this._lerp(
+        this._lerp(this._grad(p[AA+1],x,y,z-1),this._grad(p[BA+1],x-1,y,z-1),u),
+        this._lerp(this._grad(p[AB+1],x,y-1,z-1),this._grad(p[BB+1],x-1,y-1,z-1),u),v),
+      w);
+  }
+  // Fractal Brownian Motion — sums octaves of noise for richer, self-similar detail
+  fbm(x, y, z, octaves, lacunarity, gain) {
+    let amp = 1, freq = 1, sum = 0, norm = 0;
+    for (let o = 0; o < octaves; o++) {
+      sum  += amp * this.noise(x * freq, y * freq, z * freq);
+      norm += amp;
+      amp  *= gain;
+      freq *= lacunarity;
+    }
+    return sum / norm;  // normalized back to ~[-1, 1]
+  }
+}
+
+/* ============================================================
+   Sunset Palette  (coral → orange → amber → magenta → violet → indigo)
+   ============================================================ */
+const PALETTE = [
+  [255, 94, 77],[255,154,60],[255,206,84],[255,76,149],[180,70,200],[75,40,180]
+];
+const PALETTE_HSL = PALETTE.map(c=>rgbToHsl(c[0],c[1],c[2]));
+const BUCKETS = 48;
+let PARTICLE_ALPHA = 0.18;
+const bucketColors = new Array(BUCKETS);
+const bucketHSL = new Array(BUCKETS);
+
+function rgbToHsl(r,g,b){
+  r/=255;g/=255;b/=255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  let h,s,l=(max+min)/2;
+  if(max===min){h=0;s=0;}
+  else{
+    const d=max-min;
+    s=l>0.5?d/(2-max-min):d/(max+min);
+    if(max===r)h=(g-b)/d+(g<b?6:0);
+    else if(max===g)h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h/=6;
+  }
+  return [h*360,s,l];
+}
+function hslToRgb(h,s,l){
+  h=((h%360)+360)%360/360;
+  let r,g,b;
+  if(s===0){r=g=b=l;}
+  else{
+    const q=l<0.5?l*(1+s):l+s-l*s;
+    const p=2*l-q;
+    const tt=(t)=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; };
+    r=tt(h+1/3); g=tt(h); b=tt(h-1/3);
+  }
+  return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];
+}
+// Pre-compute per-bucket base HSL by interpolating the palette
+for(let b=0;b<BUCKETS;b++){
+  const t=b/(BUCKETS-1), seg=t*(PALETTE_HSL.length-1), idx=Math.floor(seg), frac=seg-idx;
+  const a=PALETTE_HSL[idx], c=PALETTE_HSL[Math.min(idx+1,PALETTE_HSL.length-1)];
+  bucketHSL[b]={ h:a[0]+(c[0]-a[0])*frac, s:a[1]+(c[1]-a[1])*frac, l:a[2]+(c[2]-a[2])*frac };
+}
+// Build rgba strings for each bucket, optionally rotating hue by hueShift (degrees)
+function buildBucketColors(hueShift){
+  if(hueShift===undefined) hueShift=0;
+  for(let b=0;b<BUCKETS;b++){
+    const hsl=bucketHSL[b];
+    const rgb=hslToRgb(hsl.h+hueShift,hsl.s,hsl.l);
+    bucketColors[b]=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${PARTICLE_ALPHA})`;
+  }
+}
+
+/* ============================================================
+   Adjustable parameters
+   ============================================================ */
+let NOISE_SCALE = 0.0025;
+let ANGLE_MULT  = 4 * Math.PI;
+let SPEED       = 1.5;
+let TIME_SPEED  = 0.0006;
+let FADE_ALPHA  = 0.036;
+let LINE_WIDTH  = 0.8;
+
+// Multi-octave (fBm) settings
+let   useFBM         = false;
+const FBM_OCTAVES    = 4;
+const FBM_LACUNARITY = 2.0;
+const FBM_GAIN       = 0.5;
+
+// Hue-drift settings — slowly rotate the palette's hue over time
+let   useHue    = false;
+let   hueOffset = 0;
+const HUE_SPEED = 0.12; // degrees per frame-unit — a very slow, breathing rotation
+
+// Central state — mirrors every adjustable value so it can be serialized into the URL hash
+const state = {
+  seed: 0,
+  particles: 6500, noiseScale: 0.0025, speed: 1.5, swirl: 4, evolution: 0.0006,
+  trail: 75, lineWidth: 0.8, brightness: 0.18, vignette: 60,
+  fbm: 0, hue: 0
+};
+
+/* ============================================================
+   Particle data — pre-allocated at MAX, gated by activeCount
+   ============================================================ */
+const MAX_PARTICLES = 15000;
+let   activeCount   = 6500;
+const posX  = new Float32Array(MAX_PARTICLES);
+const posY  = new Float32Array(MAX_PARTICLES);
+const prevX = new Float32Array(MAX_PARTICLES);
+const prevY = new Float32Array(MAX_PARTICLES);
+const life  = new Float32Array(MAX_PARTICLES);
+const maxLife = new Float32Array(MAX_PARTICLES);
+
+const bucketBufs = [];
+const bucketCounts = new Int32Array(BUCKETS);
+for (let b=0;b<BUCKETS;b++) bucketBufs.push(new Int32Array(MAX_PARTICLES));
+
+function initParticles(w,h){
+  for (let i=0;i<MAX_PARTICLES;i++){
+    posX[i]=Math.random()*w; posY[i]=Math.random()*h;
+    prevX[i]=posX[i]; prevY[i]=posY[i];
+    maxLife[i]=80+Math.random()*220; life[i]=Math.random()*maxLife[i];
+  }
+}
+function setParticleCount(n){
+  activeCount = n;
+  document.getElementById('particleVal').textContent = n.toLocaleString();
+}
+
+/* ============================================================
+   Canvas & State
+   ============================================================ */
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { alpha:false });
+let W=0,H=0, noise=null, currentSeed=0, timeOffset=0, lastTime=0, fpsAccum=0, fpsFrames=0;
+let bgGrad=null;            // cached radial background gradient (center indigo → edge near-black)
+let paused=false;          // freeze the animation (for screenshots)
+let autoEvolve=true;       // let the flow field morph over time
+let appReady=false;        // becomes true once initialization finishes
+
+function buildBgGrad(){
+  const cx=W/2, cy=H/2, maxR=Math.sqrt(cx*cx+cy*cy);
+  bgGrad = ctx.createRadialGradient(cx,cy,0,cx,cy,maxR);
+  bgGrad.addColorStop(0,'rgb(22,18,42)');   // center — deep indigo
+  bgGrad.addColorStop(1,'rgb(7,5,14)');     // edge  — near black
+}
+function resize(){
+  W=window.innerWidth; H=window.innerHeight;
+  canvas.width=W; canvas.height=H;
+  buildBgGrad();
+  ctx.globalAlpha=1; ctx.fillStyle=bgGrad; ctx.fillRect(0,0,W,H);
+}
+function regenerate(seed){
+  currentSeed = (seed!=null && !isNaN(seed)) ? (seed>>>0) : Math.floor(Math.random()*999999);
+  state.seed = currentSeed;
+  noise = new PerlinNoise(currentSeed);
+  timeOffset = 0; hueOffset = 0;
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=1; ctx.fillStyle=bgGrad; ctx.fillRect(0,0,W,H);
+  initParticles(W,H);
+  if(paused){ for(let k=0;k<40;k++) step(1); }  // render a frozen frame so it isn't blank
+  document.getElementById('seedVal').textContent = '#'+String(currentSeed).padStart(6,'0');
+  updateHash();
+}
+
+/* ============================================================
+   Animation Loop
+   ============================================================ */
+// One simulation/render step. dtNorm is ~1.0 at 60fps.
+function step(dtNorm){
+  timeOffset += autoEvolve ? TIME_SPEED*dtNorm : 0;
+  if(useHue){ hueOffset=(hueOffset+HUE_SPEED*dtNorm)%360; buildBucketColors(hueOffset); }
+
+  // Fade previous frame toward the background gradient (preserves the radial gradient)
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=FADE_ALPHA;
+  ctx.fillStyle=bgGrad;
+  ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=1;
+
+  bucketCounts.fill(0);
+  const ns=NOISE_SCALE, am=ANGLE_MULT, sp=SPEED, to=timeOffset, N=activeCount;
+  for(let i=0;i<N;i++){
+    const x=posX[i], y=posY[i];
+    const n = useFBM ? noise.fbm(x*ns,y*ns,to,FBM_OCTAVES,FBM_LACUNARITY,FBM_GAIN) : noise.noise(x*ns,y*ns,to);
+    const angle=n*am;
+    prevX[i]=x; prevY[i]=y;
+    posX[i]=x+Math.cos(angle)*sp*dtNorm;
+    posY[i]=y+Math.sin(angle)*sp*dtNorm;
+    life[i]--;
+    if(life[i]<=0 || posX[i]<0 || posX[i]>W || posY[i]<0 || posY[i]>H){
+      posX[i]=Math.random()*W; posY[i]=Math.random()*H;
+      prevX[i]=posX[i]; prevY[i]=posY[i];
+      maxLife[i]=80+Math.random()*220; life[i]=maxLife[i];
+      continue;
+    }
+    let bIdx=((n+1)*0.5*BUCKETS)|0;
+    if(bIdx<0)bIdx=0; else if(bIdx>=BUCKETS)bIdx=BUCKETS-1;
+    const c=bucketCounts[bIdx]; bucketBufs[bIdx][c]=i; bucketCounts[bIdx]=c+1;
+  }
+
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineWidth=LINE_WIDTH; ctx.lineCap='round';
+  for(let b=0;b<BUCKETS;b++){
+    const count=bucketCounts[b];
+    if(count===0) continue;
+    const buf=bucketBufs[b];
+    ctx.strokeStyle=bucketColors[b];
+    ctx.beginPath();
+    for(let j=0;j<count;j++){ const i=buf[j]; ctx.moveTo(prevX[i],prevY[i]); ctx.lineTo(posX[i],posY[i]); }
+    ctx.stroke();
+  }
+}
+function animate(ts){
+  requestAnimationFrame(animate);
+  if(paused) return;
+  if(!lastTime) lastTime=ts;
+  const dt=ts-lastTime; lastTime=ts;
+  const dtNorm=Math.min(dt/16.667,2.5);
+  fpsAccum+=dt; fpsFrames++;
+  if(fpsAccum>=500){
+    document.getElementById('fpsVal').textContent = Math.round(1000/(fpsAccum/fpsFrames));
+    fpsAccum=0; fpsFrames=0;
+  }
+  step(dtNorm);
+}
+// Re-render a frozen frame while paused so parameter tweaks are visible
+function renderFrozen(){ for(let k=0;k<40;k++) step(1); }
+
+/* ============================================================
+   Save PNG (composite canvas + vignette)
+   ============================================================ */
+function savePNG(){
+  const tmp=document.createElement('canvas');
+  tmp.width=W; tmp.height=H;
+  const tctx=tmp.getContext('2d');
+  tctx.drawImage(canvas,0,0);
+  const cx=W/2, cy=H/2, maxR=Math.sqrt(cx*cx+cy*cy);
+  const grad=tctx.createRadialGradient(cx,cy,maxR*0.28,cx,cy,maxR);
+  grad.addColorStop(0,'rgba(8,5,15,0)'); grad.addColorStop(0.72,'rgba(8,5,15,0.4)'); grad.addColorStop(1,'rgba(8,5,15,0.82)');
+  tctx.fillStyle=grad; tctx.fillRect(0,0,W,H);
+  const link=document.createElement('a');
+  link.download=`flowfield-${currentSeed}.png`;
+  link.href=tmp.toDataURL('image/png'); link.click();
+  showToast('已保存为 PNG');
+}
+
+/* ============================================================
+   Save PNG — 2× supersampled (offscreen re-simulation, then export)
+   ============================================================ */
+function exportHiRes(scale){
+  const ow=Math.round(W*scale), oh=Math.round(H*scale);
+  const off=document.createElement('canvas'); off.width=ow; off.height=oh;
+  const octx=off.getContext('2d');
+  const cx=ow/2, cy=oh/2, maxR=Math.sqrt(cx*cx+cy*cy);
+  const bg=octx.createRadialGradient(cx,cy,0,cx,cy,maxR);
+  bg.addColorStop(0,'rgb(22,18,42)'); bg.addColorStop(1,'rgb(7,5,14)');
+  octx.fillStyle=bg; octx.fillRect(0,0,ow,oh);
+
+  // Clone current particle state, scaled up to the hi-res canvas
+  const n=activeCount;
+  const px=new Float32Array(n), py=new Float32Array(n), ppx=new Float32Array(n), ppy=new Float32Array(n),
+        pl=new Float32Array(n), pml=new Float32Array(n);
+  for(let i=0;i<n;i++){ px[i]=posX[i]*scale; py[i]=posY[i]*scale; pl[i]=life[i]; pml[i]=maxLife[i]; }
+  const ns=NOISE_SCALE, am=ANGLE_MULT, sp=SPEED*scale, lw=LINE_WIDTH*scale, to=timeOffset;
+  const bc=new Int32Array(BUCKETS), bufs=[];
+  for(let b=0;b<BUCKETS;b++) bufs.push(new Int32Array(n));
+
+  const STEPS=160;  // warm up so trails accumulate at full resolution
+  for(let s=0;s<STEPS;s++){
+    octx.globalCompositeOperation='source-over';
+    octx.globalAlpha=FADE_ALPHA; octx.fillStyle=bg; octx.fillRect(0,0,ow,oh); octx.globalAlpha=1;
+    bc.fill(0);
+    for(let i=0;i<n;i++){
+      const x=px[i], y=py[i];
+      const nz = useFBM ? noise.fbm(x*ns,y*ns,to,FBM_OCTAVES,FBM_LACUNARITY,FBM_GAIN) : noise.noise(x*ns,y*ns,to);
+      const angle=nz*am;
+      ppx[i]=x; ppy[i]=y;
+      px[i]=x+Math.cos(angle)*sp; py[i]=y+Math.sin(angle)*sp;
+      pl[i]--;
+      if(pl[i]<=0 || px[i]<0 || px[i]>ow || py[i]<0 || py[i]>oh){
+        px[i]=Math.random()*ow; py[i]=Math.random()*oh; ppx[i]=px[i]; ppy[i]=py[i];
+        pml[i]=80+Math.random()*220; pl[i]=pml[i]; continue;
+      }
+      let bIdx=((nz+1)*0.5*BUCKETS)|0; if(bIdx<0)bIdx=0; else if(bIdx>=BUCKETS)bIdx=BUCKETS-1;
+      const c=bc[bIdx]; bufs[bIdx][c]=i; bc[bIdx]=c+1;
+    }
+    octx.globalCompositeOperation='lighter'; octx.lineWidth=lw; octx.lineCap='round';
+    for(let b=0;b<BUCKETS;b++){ const count=bc[b]; if(!count) continue; const buf=bufs[b];
+      octx.strokeStyle=bucketColors[b]; octx.beginPath();
+      for(let j=0;j<count;j++){ const i=buf[j]; octx.moveTo(ppx[i],ppy[i]); octx.lineTo(px[i],py[i]); }
+      octx.stroke();
+    }
+  }
+
+  // Vignette composite
+  const vg=octx.createRadialGradient(cx,cy,maxR*0.28,cx,cy,maxR);
+  vg.addColorStop(0,'rgba(8,5,15,0)'); vg.addColorStop(0.72,'rgba(8,5,15,0.4)'); vg.addColorStop(1,'rgba(8,5,15,0.82)');
+  octx.globalCompositeOperation='source-over'; octx.fillStyle=vg; octx.fillRect(0,0,ow,oh);
+
+  const link=document.createElement('a');
+  link.download=`flowfield-${currentSeed}@2x.png`;
+  link.href=off.toDataURL('image/png'); link.click();
+  showToast(`已保存 2× 高清 PNG (${ow}×${oh})`);
+}
+
+/* ============================================================
+   Toast
+   ============================================================ */
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._timer); t._timer=setTimeout(()=>t.classList.remove('show'),2000);
+}
+
+/* ============================================================
+   Control Panel — slider definitions & wiring
+   ============================================================ */
+const sliderDefs = [
+  { key:'particles',  short:'p',  label:'粒子数',   min:500,   max:15000, step:500,    val:6500,   fmt:v=>Math.round(v).toLocaleString() },
+  { key:'noiseScale', short:'ns', label:'流场缩放', min:0.0005,max:0.008, step:0.0005, val:0.0025, fmt:v=>v.toFixed(4) },
+  { key:'speed',      short:'sp', label:'流速',     min:0.3,   max:4,     step:0.1,    val:1.5,    fmt:v=>v.toFixed(1) },
+  { key:'swirl',      short:'sw', label:'旋绕度',   min:1,     max:8,     step:0.5,    val:4,      fmt:v=>v.toFixed(1)+'π' },
+  { key:'evolution',  short:'ev', label:'演化速度', min:0,     max:0.003, step:0.0001, val:0.0006, fmt:v=>v.toFixed(4) },
+  { key:'trail',      short:'tr', label:'轨迹长度', min:0,     max:100,   step:1,      val:75,     fmt:v=>v+'%' },
+  { key:'lineWidth',  short:'lw', label:'线宽',     min:0.3,   max:3,     step:0.1,    val:0.8,    fmt:v=>v.toFixed(1) },
+  { key:'brightness', short:'br', label:'亮度',     min:0.05,  max:0.5,   step:0.01,   val:0.18,   fmt:v=>v.toFixed(2) },
+  { key:'vignette',   short:'vg', label:'暗角',     min:0,     max:100,   step:1,      val:60,     fmt:v=>v+'%' },
+];
+
+function applyVignette(value){
+  const k=value/100;
+  const edge=k*0.9, mid=k*0.45, core=Math.max(8,28-k*20);
+  document.getElementById('vignette').style.background =
+    `radial-gradient(ellipse 92% 92% at center, transparent ${core}%, rgba(8,5,15,${mid.toFixed(3)}) 72%, rgba(8,5,15,${edge.toFixed(3)}) 100%)`;
+}
+function applyParam(def,value){
+  state[def.key]=value;
+  switch(def.key){
+    case 'particles':  setParticleCount(value); break;
+    case 'noiseScale': NOISE_SCALE=value; break;
+    case 'speed':      SPEED=value; break;
+    case 'swirl':      ANGLE_MULT=value*Math.PI; break;
+    case 'evolution':  TIME_SPEED=value; break;
+    case 'trail':      FADE_ALPHA=0.12+(0.008-0.12)*(value/100); break;
+    case 'lineWidth':  LINE_WIDTH=value; break;
+    case 'brightness': PARTICLE_ALPHA=value; buildBucketColors(hueOffset); break;
+    case 'vignette':   applyVignette(value); break;
+  }
+  updateHash();
+}
+
+function buildSliders(){
+  const wrap=document.getElementById('sliders');
+  sliderDefs.forEach(def=>{
+    const row=document.createElement('div');
+    row.className='slider-row';
+    row.innerHTML=
+      `<div class="slider-head"><span class="name">${def.label}</span>`+
+      `<span class="val" id="val-${def.key}">${def.fmt(def.val)}</span></div>`+
+      `<input type="range" id="sl-${def.key}" min="${def.min}" max="${def.max}" step="${def.step}" value="${def.val}">`;
+    wrap.appendChild(row);
+    const input=row.querySelector('input');
+    const valEl=row.querySelector('.val');
+    input.addEventListener('input',()=>{
+      const v=parseFloat(input.value);
+      valEl.textContent=def.fmt(v);
+      applyParam(def,v);
+      if(paused && appReady) renderFrozen();
+    });
+  });
+}
+
+/* ============================================================
+   Collapse toggle
+   ============================================================ */
+document.getElementById('collapseBtn').addEventListener('click',()=>{
+  const p=document.getElementById('panel');
+  p.classList.toggle('collapsed');
+  document.getElementById('collapseBtn').textContent = p.classList.contains('collapsed') ? '⟩' : '⟨';
+});
+
+/* ============================================================
+   Event Listeners
+   ============================================================ */
+document.getElementById('regenerateBtn').addEventListener('click',()=>regenerate());
+document.getElementById('saveBtn').addEventListener('click',savePNG);
+document.getElementById('fbmBtn').addEventListener('click',()=>{
+  useFBM=!useFBM; state.fbm=useFBM?1:0;
+  document.getElementById('fbmBtn').classList.toggle('active',useFBM);
+  if(paused && appReady) renderFrozen();
+  updateHash();
+});
+document.getElementById('hueBtn').addEventListener('click',()=>{
+  useHue=!useHue; state.hue=useHue?1:0;
+  document.getElementById('hueBtn').classList.toggle('active',useHue);
+  buildBucketColors(hueOffset);
+  if(paused && appReady) renderFrozen();
+  updateHash();
+});
+document.getElementById('shareBtn').addEventListener('click',()=>{
+  updateHash();
+  const url=location.href;
+  const done=()=>showToast('分享链接已复制');
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done).catch(()=>showToast('复制失败，请手动复制地址栏链接')); }
+  else { showToast('分享链接：'+url); }
+});
+document.getElementById('pauseBtn').addEventListener('click',()=>{
+  paused=!paused;
+  const b=document.getElementById('pauseBtn');
+  b.classList.toggle('active',paused);
+  b.querySelector('.label').textContent = paused ? '播放' : '暂停';
+  if(!paused) lastTime=0;   // avoid a dt jump on resume
+  updateHash();
+});
+document.getElementById('evolveBtn').addEventListener('click',()=>{
+  autoEvolve=!autoEvolve;
+  document.getElementById('evolveBtn').classList.toggle('active',autoEvolve);
+  updateHash();
+});
+document.getElementById('save2xBtn').addEventListener('click',()=>exportHiRes(2));
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){ e.preventDefault(); regenerate(); }
+  if(e.key==='s'||e.key==='S') savePNG();
+});
+window.addEventListener('resize',()=>{ resize(); initParticles(W,H); if(paused) renderFrozen(); });
+
+/* ---------- Hover-reveal buttons: show whenever the mouse is in the upper half (centre-up) of the screen ---------- */
+const controlsEl=document.getElementById('controls');
+window.addEventListener('mousemove',e=>{
+  const reveal = e.clientY < window.innerHeight*0.5;
+  controlsEl.classList.toggle('visible',reveal);
+});
+
+/* ============================================================
+   URL config reproduction — serialize state into location.hash
+   ============================================================ */
+function buildHash(){
+  const s=state;
+  return '#'+[
+    's='+s.seed,
+    'p='+Math.round(s.particles),
+    'ns='+s.noiseScale,
+    'sp='+s.speed,
+    'sw='+s.swirl,
+    'ev='+s.evolution,
+    'tr='+s.trail,
+    'lw='+s.lineWidth,
+    'br='+s.brightness,
+    'vg='+s.vignette,
+    'fbm='+s.fbm,
+    'hue='+s.hue,
+    'pause='+(paused?1:0),
+    'evolve='+(autoEvolve?1:0)
+  ].join('&');
+}
+function updateHash(){ history.replaceState(null,'',buildHash()); }
+function parseHash(){
+  const h=location.hash.replace(/^#/,'');
+  if(!h) return null;
+  const o={};
+  h.split('&').forEach(kv=>{ const i=kv.indexOf('='); if(i>0){ o[kv.slice(0,i)]=kv.slice(i+1); } });
+  return o;
+}
+
+/* ============================================================
+   Initialize
+   ============================================================ */
+buildBucketColors();
+
+// Restore configuration from a shared URL (if present)
+const cfg = parseHash();
+if(cfg){
+  sliderDefs.forEach(def=>{
+    if(cfg[def.short]!=null){ const v=parseFloat(cfg[def.short]); if(!isNaN(v)) def.val=v; }
+  });
+}
+buildSliders();
+sliderDefs.forEach(d=>applyParam(d,d.val)); // sync all params to state
+
+// Restore toggle states from shared URL
+if(cfg.fbm!=null){ useFBM = (cfg.fbm==='1'); state.fbm = useFBM?1:0; }
+if(cfg.hue!=null){ useHue = (cfg.hue==='1'); state.hue = useHue?1:0; }
+if(cfg.pause!=null)  paused     = (cfg.pause==='1');
+if(cfg.evolve!=null) autoEvolve = (cfg.evolve==='1');
+
+// Accessibility: honor OS "reduce motion" preference (unless a shared link overrides it)
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(reduceMotion && (!cfg || cfg.pause==null)) paused = true;
+
+// Reflect all button states
+document.getElementById('fbmBtn').classList.toggle('active',useFBM);
+document.getElementById('hueBtn').classList.toggle('active',useHue);
+document.getElementById('evolveBtn').classList.toggle('active',autoEvolve);
+const pBtn=document.getElementById('pauseBtn');
+pBtn.classList.toggle('active',paused);
+pBtn.querySelector('.label').textContent = paused ? '播放' : '暂停';
+
+resize();
+if(cfg && cfg.s!=null && !isNaN(parseInt(cfg.s))) regenerate(parseInt(cfg.s));
+else regenerate();
+
+appReady=true;
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
